@@ -1,0 +1,70 @@
+# Copyright 2026 Edgeless Systems GmbH
+# SPDX-License-Identifier: BUSL-1.1
+#
+# This is a template: the %%pin%% placeholder below is replaced with the
+# pinned image reference (ghcr.io/edgelesssys/collateral-proxy:v<version>@sha256:<digest>) at release time,
+# and the rendered manifest is attached to the GitHub Release as collateral-proxy.yml.
+# See `nix run .#render-k8s-resources`.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: collateral-proxy
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: collateral-proxy
+  serviceName: collateral-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: collateral-proxy
+    spec:
+      containers:
+        - args:
+            - -addr=:80
+            - -state-dir=/var/lib/collateral-proxy
+          image: "%%pin%%"
+          name: collateral-proxy
+          ports:
+            - containerPort: 80
+              name: proxy
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            periodSeconds: 5
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              memory: 256Mi
+          volumeMounts:
+            - mountPath: /var/lib/collateral-proxy
+              name: state
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: state
+        namespace: default
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: collateral-proxy
+  namespace: default
+spec:
+  ports:
+    - name: proxy
+      port: 80
+      targetPort: 80
+  selector:
+    app.kubernetes.io/name: collateral-proxy
