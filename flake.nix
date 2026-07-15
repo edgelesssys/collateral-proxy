@@ -78,9 +78,11 @@
             gzip
           ];
           text = ''
+            trap 'echo "push-collateral-proxy: failed (exit $?) at line $LINENO: $BASH_COMMAND" >&2' ERR
             tag="''${1:-dev}"
             tmp=$(mktemp)
             trap 'rm -f "$tmp"' EXIT
+            echo "push-collateral-proxy: pushing ${image}:$tag" >&2
             gunzip < "${container}" > "$tmp"
             crane push "$tmp" "${image}:$tag" >&2
             digest=$(crane digest "${image}:$tag")
@@ -97,9 +99,13 @@
             pkgs.gnused
           ];
           text = ''
+            trap 'echo "render-k8s-resources: failed (exit $?) at line $LINENO: $BASH_COMMAND" >&2' ERR
             tag="''${1:-v${version}}"
             template=${./collateral-proxy.yml}
-            grep -q '%%pin%%' "$template"
+            if ! grep -q '%%pin%%' "$template"; then
+              echo "render-k8s-resources: template $template is missing the %%pin%% placeholder" >&2
+              exit 1
+            fi
             ref=$(push-collateral-proxy "$tag")
             sed "s|%%pin%%|$ref|" "$template"
           '';
