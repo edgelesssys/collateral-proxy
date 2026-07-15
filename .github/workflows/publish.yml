@@ -1,6 +1,6 @@
 # Copyright 2026 Edgeless Systems GmbH
 # SPDX-License-Identifier: BUSL-1.1
-name: container
+name: publish
 on:
   workflow_dispatch:
   push:
@@ -36,8 +36,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          nix run .#render-k8s-resources > collateral-proxy.yml
+          out="$RUNNER_TEMP/collateral-proxy.yml"
+          nix run .#render-k8s-resources > "$out"
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
             --generate-notes \
-            collateral-proxy.yml
+            "$out"
