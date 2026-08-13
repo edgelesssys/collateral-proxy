@@ -192,8 +192,22 @@ func (s *Server) serveCollateral(w http.ResponseWriter, r *http.Request, upstrea
 		return
 	}
 
-	s.metrics.requests.WithLabelValues("miss", docType).Inc()
 	s.metrics.upstream.WithLabelValues(strconv.Itoa(res.Status), docType).Inc()
+
+	if !cache.Cacheable(res.Status) {
+		if entry != nil && transientStatus(res.Status) {
+			s.metrics.requests.WithLabelValues("stale", docType).Inc()
+			s.log.Warn("serving stale on unsuccessful upstream response", "url", upstreamURL, "status", res.Status)
+			writeResponse(w, entry.Status, entry.Header, entry.Body)
+			return
+		}
+		s.metrics.requests.WithLabelValues("error", docType).Inc()
+		s.log.Error("relaying unsuccessful upstream response, not caching it", "url", upstreamURL, "status", res.Status)
+		writeResponse(w, res.Status, res.Header, res.Body)
+		return
+	}
+
+	s.metrics.requests.WithLabelValues("miss", docType).Inc()
 	s.log.Info("cache miss, fetched upstream", "url", upstreamURL, "status", res.Status)
 	entry, err = s.cache.Put(upstreamURL, res.Status, res.Header, res.Body)
 	if err != nil {
@@ -202,6 +216,10 @@ func (s *Server) serveCollateral(w http.ResponseWriter, r *http.Request, upstrea
 		return
 	}
 	writeResponse(w, entry.Status, entry.Header, entry.Body)
+}
+
+func transientStatus(status int) bool {
+	return status >= 500 || status == http.StatusTooManyRequests
 }
 
 // hopByHopHeaders are not forwarded from the upstream response to the client.

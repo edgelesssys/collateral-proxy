@@ -62,7 +62,12 @@ func (c *Cache) Get(url string) (*Entry, bool) {
 }
 
 // Put stores a response under url, computing freshness from headers / body.
+//
+// Responses that aren't [Cacheable] are not stored, in which case Put returns a nil entry.
 func (c *Cache) Put(url string, status int, header http.Header, body []byte) (*Entry, error) {
+	if !Cacheable(status) {
+		return nil, nil
+	}
 	e := &Entry{
 		URL:        url,
 		Status:     status,
@@ -99,6 +104,15 @@ func (c *Cache) loadAll() error {
 			slog.Warn("skipping corrupt cache entry", "path", path, "err", err)
 			return nil
 		}
+		if !Cacheable(e.Status) {
+			// Written by a version that still cached error responses. Dropping it here
+			// keeps a poisoned entry from outliving the restart that was meant to clear it.
+			slog.Warn("dropping cached error response", "url", e.URL, "status", e.Status)
+			if err := os.Remove(path); err != nil {
+				slog.Warn("removing cached error response failed", "path", path, "err", err)
+			}
+			return nil
+		}
 		c.entries[e.URL] = &e
 		return nil
 	})
@@ -124,6 +138,12 @@ func (c *Cache) writeDisk(e *Entry) error {
 // as required by the must-understand directive (RFC 9111, Section 5.2.2.2). We only cache successful responses.
 var understoodStatusCodes = map[int]struct{}{
 	http.StatusOK: {},
+}
+
+// Cacheable reports whether a response with the given status may be stored.
+func Cacheable(status int) bool {
+	_, ok := understoodStatusCodes[status]
+	return ok
 }
 
 func freshness(status int, header http.Header, body []byte) time.Duration {
