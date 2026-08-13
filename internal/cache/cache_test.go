@@ -9,9 +9,13 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"math/big"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -114,6 +118,46 @@ func TestPutGetRoundTrip(t *testing.T) {
 	require.NotNil(t, e2)
 	assert.True(t, fresh2)
 	assert.Equal(t, "hello", string(e2.Body))
+}
+
+func TestErrorResponsesAreNotStored(t *testing.T) {
+	dir := t.TempDir()
+	c, err := New(dir)
+	require.NoError(t, err)
+
+	e, err := c.Put("https://example/x", 500, http.Header{}, []byte("upstream unavailable"))
+	require.NoError(t, err)
+	assert.Nil(t, e, "error response should not be stored")
+
+	got, fresh := c.Get("https://example/x")
+	assert.Nil(t, got)
+	assert.False(t, fresh)
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "error response should not have been written to disk")
+}
+
+func TestPoisonedEntryDroppedOnLoad(t *testing.T) {
+	dir := t.TempDir()
+	poisoned := Entry{
+		URL:        "https://example/x",
+		Status:     500,
+		Header:     http.Header{},
+		Body:       []byte("upstream unavailable"),
+		FreshUntil: time.Now().Add(time.Hour),
+	}
+	raw, err := json.Marshal(poisoned)
+	require.NoError(t, err)
+	path := filepath.Join(dir, base64.RawURLEncoding.EncodeToString([]byte(poisoned.URL))+".json")
+	require.NoError(t, os.WriteFile(path, raw, 0o600))
+
+	c, err := New(dir)
+	require.NoError(t, err)
+	got, fresh := c.Get(poisoned.URL)
+	assert.Nil(t, got, "entry cached by an older version should not be loaded")
+	assert.False(t, fresh)
+	assert.NoFileExists(t, path)
 }
 
 func TestStaleEntryStillReturned(t *testing.T) {
