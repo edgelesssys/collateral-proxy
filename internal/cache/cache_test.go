@@ -178,6 +178,48 @@ func TestLongURLIsStored(t *testing.T) {
 	assert.Equal(t, "cert", string(got.Body))
 }
 
+func TestSidecarRecordsURL(t *testing.T) {
+	dir := t.TempDir()
+	c, err := New(dir)
+	require.NoError(t, err)
+	url := "https://kdsintf.amd.com/vcek/v1/Genoa/" + strings.Repeat("ab", 64)
+	_, err = c.Put(url, 200, http.Header{}, []byte("cert"))
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(metaPath(c.entryPath(url)))
+	require.NoError(t, err, "no sidecar next to the entry")
+	var meta metadata
+	require.NoError(t, json.Unmarshal(raw, &meta))
+	assert.Equal(t, url, meta.URL, "sidecar should name the URL the file was stored under")
+
+	c2, err := New(dir)
+	require.NoError(t, err)
+	assert.Len(t, c2.entries, 1)
+	got, fresh := c2.Get(url)
+	require.NotNil(t, got)
+	assert.True(t, fresh)
+	assert.FileExists(t, metaPath(c.entryPath(url)))
+}
+
+func TestSidecarRemovedWithEntry(t *testing.T) {
+	dir := t.TempDir()
+	c, err := New(dir)
+	require.NoError(t, err)
+	url := "https://example/x"
+	_, err = c.Put(url, 200, http.Header{}, []byte("hi"))
+	require.NoError(t, err)
+
+	poisoned := Entry{URL: url, Status: 500, Header: http.Header{}, FreshUntil: time.Now().Add(time.Hour)}
+	raw, err := json.Marshal(poisoned)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(c.entryPath(url), raw, 0o600))
+
+	_, err = New(dir)
+	require.NoError(t, err)
+	assert.NoFileExists(t, c.entryPath(url))
+	assert.NoFileExists(t, metaPath(c.entryPath(url)), "sidecar outlived its entry")
+}
+
 func TestLegacyEntryMigratedOnLoad(t *testing.T) {
 	dir := t.TempDir()
 	legacy := Entry{
@@ -199,6 +241,7 @@ func TestLegacyEntryMigratedOnLoad(t *testing.T) {
 	assert.True(t, fresh)
 	assert.NoFileExists(t, legacyPath, "legacy file should have been migrated away")
 	assert.FileExists(t, c.entryPath(legacy.URL))
+	assert.FileExists(t, metaPath(c.entryPath(legacy.URL)), "migration should write a sidecar")
 }
 
 func TestStaleEntryStillReturned(t *testing.T) {
