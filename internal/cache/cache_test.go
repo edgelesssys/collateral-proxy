@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,6 +159,46 @@ func TestPoisonedEntryDroppedOnLoad(t *testing.T) {
 	assert.Nil(t, got, "entry cached by an older version should not be loaded")
 	assert.False(t, fresh)
 	assert.NoFileExists(t, path)
+}
+
+func TestLongURLIsStored(t *testing.T) {
+	dir := t.TempDir()
+	c, err := New(dir)
+	require.NoError(t, err)
+
+	url := "https://kdsintf.amd.com/vcek/v1/Genoa/" + strings.Repeat("ab", 64) + "?blSPL=10&teeSPL=0&snpSPL=27&ucodeSPL=84"
+	_, err = c.Put(url, 200, http.Header{}, []byte("cert"))
+	require.NoError(t, err)
+
+	c2, err := New(dir)
+	require.NoError(t, err)
+	got, fresh := c2.Get(url)
+	require.NotNil(t, got, "entry did not survive a reopen")
+	assert.True(t, fresh)
+	assert.Equal(t, "cert", string(got.Body))
+}
+
+func TestLegacyEntryMigratedOnLoad(t *testing.T) {
+	dir := t.TempDir()
+	legacy := Entry{
+		URL:        "https://example/x",
+		Status:     200,
+		Header:     http.Header{},
+		Body:       []byte("hi"),
+		FreshUntil: time.Now().Add(time.Hour),
+	}
+	raw, err := json.Marshal(legacy)
+	require.NoError(t, err)
+	legacyPath := filepath.Join(dir, base64.RawURLEncoding.EncodeToString([]byte(legacy.URL))+".json")
+	require.NoError(t, os.WriteFile(legacyPath, raw, 0o600))
+
+	c, err := New(dir)
+	require.NoError(t, err)
+	got, fresh := c.Get(legacy.URL)
+	require.NotNil(t, got, "entry written by an older version should still be loaded")
+	assert.True(t, fresh)
+	assert.NoFileExists(t, legacyPath, "legacy file should have been migrated away")
+	assert.FileExists(t, c.entryPath(legacy.URL))
 }
 
 func TestStaleEntryStillReturned(t *testing.T) {
