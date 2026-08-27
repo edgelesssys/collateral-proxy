@@ -23,6 +23,15 @@ import (
 
 const defaultTTL = time.Hour
 
+const (
+	entrySuffix = ".json"
+	metaSuffix  = ".meta.json"
+)
+
+type metadata struct {
+	URL string `json:"url"`
+}
+
 // Entry is a cached HTTP response.
 type Entry struct {
 	URL        string      `json:"url"`
@@ -92,7 +101,7 @@ func (c *Cache) loadAll() error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".json") {
+		if d.IsDir() || !strings.HasSuffix(path, entrySuffix) || strings.HasSuffix(path, metaSuffix) {
 			return nil
 		}
 		f, err := os.Open(path)
@@ -109,14 +118,14 @@ func (c *Cache) loadAll() error {
 			// Written by a version that still cached error responses. Dropping it here
 			// keeps a poisoned entry from outliving the restart that was meant to clear it.
 			slog.Warn("dropping cached error response", "url", e.URL, "status", e.Status)
-			if err := os.Remove(path); err != nil {
+			if err := removeEntry(path); err != nil {
 				slog.Warn("removing cached error response failed", "path", path, "err", err)
 			}
 			return nil
 		}
 		if prev, ok := c.entries[e.URL]; ok && !e.FreshUntil.After(prev.FreshUntil) {
 			// A copy of the same URL under a different file name, and not the fresher one.
-			if err := os.Remove(path); err != nil {
+			if err := removeEntry(path); err != nil {
 				slog.Warn("removing duplicate cache entry failed", "path", path, "err", err)
 			}
 			return nil
@@ -127,7 +136,7 @@ func (c *Cache) loadAll() error {
 				slog.Warn("migrating cache entry failed", "path", path, "err", err)
 				return nil
 			}
-			if err := os.Remove(path); err != nil {
+			if err := removeEntry(path); err != nil {
 				slog.Warn("removing migrated cache entry failed", "path", path, "err", err)
 			}
 		}
@@ -137,21 +146,53 @@ func (c *Cache) loadAll() error {
 
 func (c *Cache) entryPath(url string) string {
 	sum := sha256.Sum256([]byte(url))
-	return filepath.Join(c.dir, hex.EncodeToString(sum[:])+".json")
+	return filepath.Join(c.dir, hex.EncodeToString(sum[:])+entrySuffix)
+}
+
+// metaPath is the sidecar belonging to the entry stored at path.
+func metaPath(path string) string {
+	return strings.TrimSuffix(path, entrySuffix) + metaSuffix
+}
+
+// removeEntry deletes an entry and its sidecar, if it has one.
+func removeEntry(path string) error {
+	err := os.Remove(path)
+	if metaErr := os.Remove(metaPath(path)); metaErr != nil && !errors.Is(metaErr, fs.ErrNotExist) {
+		err = errors.Join(err, metaErr)
+	}
+	return err
 }
 
 func (c *Cache) writeDisk(e *Entry) error {
+	blob, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
 	path := c.entryPath(e.URL)
+	if err := c.writeFile(path, append(blob, '\n')); err != nil {
+		return err
+	}
+	// The sidecar is a debugging aid, so failing to write it should not fail the Put.
+	meta, err := json.Marshal(metadata{URL: e.URL})
+	if err == nil {
+		err = c.writeFile(metaPath(path), append(meta, '\n'))
+	}
+	if err != nil {
+		slog.Warn("writing cache entry sidecar failed", "url", e.URL, "err", err)
+	}
+	return nil
+}
+
+func (c *Cache) writeFile(path string, data []byte) error {
 	f, err := os.CreateTemp(c.dir, "tmp-*")
 	if err != nil {
 		return err
 	}
-
-	if err := json.NewEncoder(f).Encode(e); err != nil {
-		return errors.Join(err, f.Close())
+	if _, err := f.Write(data); err != nil {
+		return errors.Join(err, f.Close(), os.Remove(f.Name()))
 	}
 	if err := f.Close(); err != nil {
-		return err
+		return errors.Join(err, os.Remove(f.Name()))
 	}
 	return os.Rename(f.Name(), path)
 }
