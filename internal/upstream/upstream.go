@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"golang.org/x/sync/singleflight"
 )
+
+const fetchTimeout = time.Minute
 
 // Result is a captured upstream response.
 type Result struct {
@@ -32,8 +35,11 @@ func New(client *http.Client) *Fetcher {
 
 // Get fetches the given url.
 func (f *Fetcher) Get(ctx context.Context, url string) (*Result, error) {
+	fetchCtx := context.WithoutCancel(ctx)
 	v, err, _ := f.group.Do(url, func() (any, error) {
-		return f.doGet(ctx, url)
+		fetchCtx, cancel := context.WithTimeout(fetchCtx, fetchTimeout)
+		defer cancel()
+		return f.doGet(fetchCtx, url)
 	})
 	if err != nil {
 		return nil, err
