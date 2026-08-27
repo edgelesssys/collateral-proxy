@@ -4,8 +4,9 @@
 package cache
 
 import (
+	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -113,13 +114,34 @@ func (c *Cache) loadAll() error {
 			}
 			return nil
 		}
+		if prev, ok := c.entries[e.URL]; ok && !e.FreshUntil.After(prev.FreshUntil) {
+			// A copy of the same URL under a different file name, and not the fresher one.
+			if err := os.Remove(path); err != nil {
+				slog.Warn("removing duplicate cache entry failed", "path", path, "err", err)
+			}
+			return nil
+		}
 		c.entries[e.URL] = &e
+		if path != c.entryPath(e.URL) {
+			if err := c.writeDisk(&e); err != nil {
+				slog.Warn("migrating cache entry failed", "path", path, "err", err)
+				return nil
+			}
+			if err := os.Remove(path); err != nil {
+				slog.Warn("removing migrated cache entry failed", "path", path, "err", err)
+			}
+		}
 		return nil
 	})
 }
 
+func (c *Cache) entryPath(url string) string {
+	sum := sha256.Sum256([]byte(url))
+	return filepath.Join(c.dir, hex.EncodeToString(sum[:])+".json")
+}
+
 func (c *Cache) writeDisk(e *Entry) error {
-	path := filepath.Join(c.dir, base64.RawURLEncoding.EncodeToString([]byte(e.URL))+".json")
+	path := c.entryPath(e.URL)
 	f, err := os.CreateTemp(c.dir, "tmp-*")
 	if err != nil {
 		return err
