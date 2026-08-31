@@ -117,7 +117,7 @@ The proxy preserves the path and query and rewrites only the host, so clients on
 
 1. Bump version in `version.txt`.
 
-2. Push to `main`
+2. Push to a release branch.
    ```sh
    git commit -am "release: v0.X.0"
    git push origin release-v0.X.0
