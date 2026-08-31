@@ -23,6 +23,7 @@
         pkgs = import nixpkgs {
           inherit system;
           overlays = [ (import ./overlays/nixpkgs.nix) ];
+          config.allowUnfreePredicate = pkg: (pkg.pname or "") == "collateral-proxy";
         };
         inherit (pkgs) lib;
         version = lib.trim (builtins.readFile ./version.txt);
@@ -57,7 +58,7 @@
           '';
           meta = {
             description = "Read-through caching forward proxy for attestation collateral (AMD KDS, Intel PCS, NVIDIA RIM).";
-            license = lib.licenses.mit;
+            license = lib.licenses.bsl11;
             mainProgram = "collateral-proxy";
           };
         };
