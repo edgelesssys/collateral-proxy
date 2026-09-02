@@ -91,23 +91,25 @@
           '';
         };
 
-        # Push the image and render the deployment manifest to stdout.
+        # Render the deployment manifest to stdout.
         render-k8s-resources = pkgs.writeShellApplication {
           name = "render-k8s-resources";
           runtimeInputs = [
-            push
             pkgs.gnugrep
             pkgs.gnused
           ];
           text = ''
             trap 'echo "render-k8s-resources: failed (exit $?) at line $LINENO: $BASH_COMMAND" >&2' ERR
-            tag="''${1:-v${version}}"
+            if [[ $# -ne 1 ]]; then
+              echo "usage: render-k8s-resources ${image}:<tag>@sha256:<digest>" >&2
+              exit 1
+            fi
+            ref=$1
             template=${./collateral-proxy.yml}
             if ! grep -q '%%pin%%' "$template"; then
               echo "render-k8s-resources: template $template is missing the %%pin%% placeholder" >&2
               exit 1
             fi
-            ref=$(push-collateral-proxy "$tag")
             sed "s|%%pin%%|$ref|" "$template"
           '';
         };
