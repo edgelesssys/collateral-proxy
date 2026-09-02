@@ -125,6 +125,4 @@ The proxy preserves the path and query and rewrites only the host, so clients on
 
 3. Open a PR and merge to `main`.
 
-4. CI running on main publishes `ghcr.io/edgelesssys/collateral-proxy:v0.X.0` and moves `:latest`.
-
-5. Push the `v0.X.0` tag. CI then publishes a GitHub Release and attaches `collateral-proxy.yaml`, the deployment manifest pinned to `v0.X.0@sha256:<digest>`.
+4. Push the `v0.X.0` tag. CI then publishes `ghcr.io/edgelesssys/collateral-proxy:v0.X.0` and a GitHub Release with `collateral-proxy.yaml` attached.
