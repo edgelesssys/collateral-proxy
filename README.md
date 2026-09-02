@@ -107,7 +107,7 @@ The proxy preserves the path and query and rewrites only the host, so clients on
 - Build the binary: `nix build .#collateral-proxy`.
 - Build the container image: `nix build .#container`.
 - Push the image: `nix run .#push -- [tag]` (defaults to the `:dev`).
-- Push the image and render the pinned deployment manifest: `nix run .#render-k8s-resources -- [tag]`.
+- Render the deployment manifest pinned to a pushed image: `nix run .#render-k8s-resources -- "$(nix run .#push -- dev)"`.
 - Format: `nix fmt`.
 - Lint: `nix run .#lint`.
 - Vuln scan: `nix run .#govulncheck`.
@@ -125,4 +125,4 @@ The proxy preserves the path and query and rewrites only the host, so clients on
 
 3. Open a PR and merge to `main`.
 
-4. Push the `v0.X.0` tag. CI then publishes `ghcr.io/edgelesssys/collateral-proxy:v0.X.0` and a GitHub Release with `collateral-proxy.yaml` attached.
+4. Push the `v0.X.0` tag. CI then publishes `ghcr.io/edgelesssys/collateral-proxy:v0.X.0`, moves `:latest`, and creates a GitHub Release with `collateral-proxy.yaml` attached.

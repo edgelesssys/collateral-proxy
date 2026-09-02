@@ -4,8 +4,6 @@ name: publish
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
     tags:
       - "v*"
 permissions:
@@ -25,16 +23,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push latest tag (main only)
-        if: github.ref == 'refs/heads/main'
-        run: nix run .#push -- latest
       - name: Render manifest and publish release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          ref=$(nix run .#push -- "${{ github.ref_name }}")
+          nix run .#push -- latest > /dev/null
           out="$RUNNER_TEMP/collateral-proxy.yml"
-          nix run .#render-k8s-resources > "$out"
+          nix run .#render-k8s-resources -- "$ref" > "$out"
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
             --generate-notes \
